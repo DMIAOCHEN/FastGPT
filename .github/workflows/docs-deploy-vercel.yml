@@ -26,6 +26,8 @@ jobs:
     outputs:
       docs: ${{ steps.filter.outputs.docs }}
 
+    if: github.repository == 'labring/FastGPT'
+
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Step 1 - Checks-out your repository under $GITHUB_WORKSPACE

@@ -36,9 +36,9 @@ jobs:
       - name: Set DOCKER_REPO_TAGGED based on branch or tag
         run: |
           if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "DOCKER_REPO_TAGGED=${{ github.repository_owner }}/fastgpt:latest" >> $GITHUB_ENV
+            echo "IMAGE_TAG=latest" >> $GITHUB_ENV
           else
-            echo "DOCKER_REPO_TAGGED=${{ github.repository_owner }}/fastgpt:${{ github.ref_name }}" >> $GITHUB_ENV
+            echo "IMAGE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
           fi
       - name: Build and publish image for main branch or tag push event
         env:
@@ -52,7 +52,7 @@ jobs:
           --push \
           --cache-from=type=local,src=/tmp/.buildx-cache \
           --cache-to=type=local,dest=/tmp/.buildx-cache \
-          -t ${DOCKER_REPO_TAGGED} \
+          -t ${{ secrets.DOCKER_IMAGE_NAME }}:${{env.IMAGE_TAG}} \
           -f Dockerfile \
           .
   push-to-docker-hub:

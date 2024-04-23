@@ -9,6 +9,7 @@ on:
 jobs:
   helm:
     runs-on: ubuntu-20.04
+    if: github.repository == 'labring/FastGPT'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
