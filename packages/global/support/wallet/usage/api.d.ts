@@ -1,9 +1,25 @@
-import { UsageSourceEnum } from './constants';
-import { UsageListItemCountType, UsageListItemType } from './type';
+import type { UsageSourceEnum } from './constants';
+import type { UsageListItemCountType, UsageListItemType } from './type';
 
 export type CreateTrainingUsageProps = {
   name: string;
   datasetId: string;
+};
+
+export type GetUsageProps = {
+  dateStart: string;
+  dateEnd: string;
+  sources?: UsageSourceEnum[];
+  teamMemberIds?: string[];
+  projectName?: string;
+};
+
+export type GetUsageDashboardProps = GetUsageProps & {
+  unit: 'day' | 'month';
+};
+export type GetUsageDashboardResponseItem = {
+  date: Date;
+  totalPoints: number;
 };
 
 export type ConcatUsageProps = UsageListItemCountType & {
@@ -19,6 +35,7 @@ export type CreateUsageProps = {
   tmbId: string;
   appName: string;
   appId?: string;
+  pluginId?: string;
   totalPoints: number;
   source: `${UsageSourceEnum}`;
   list: UsageListItemType[];

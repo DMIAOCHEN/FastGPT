@@ -8,21 +8,39 @@ export type CreateDatasetDataProps = {
   chunkIndex?: number;
   q: string;
   a?: string;
+  imageId?: string;
   indexes?: Omit<DatasetDataIndexItemType, 'dataId'>[];
+  indexPrefix?: string;
 };
 
 export type UpdateDatasetDataProps = {
   dataId: string;
-  q?: string;
+
+  q: string;
   a?: string;
   indexes?: (Omit<DatasetDataIndexItemType, 'dataId'> & {
     dataId?: string; // pg data id
   })[];
+  imageId?: string;
+  indexPrefix?: string;
 };
 
-export type PatchIndexesProps = {
-  type: 'create' | 'update' | 'delete' | 'unChange';
-  index: Omit<DatasetDataIndexItemType, 'dataId'> & {
-    dataId?: string;
-  };
-};
+export type PatchIndexesProps =
+  | {
+      type: 'create';
+      index: Omit<DatasetDataIndexItemType, 'dataId'> & {
+        dataId?: string;
+      };
+    }
+  | {
+      type: 'update';
+      index: DatasetDataIndexItemType;
+    }
+  | {
+      type: 'delete';
+      index: DatasetDataIndexItemType;
+    }
+  | {
+      type: 'unChange';
+      index: DatasetDataIndexItemType;
+    };

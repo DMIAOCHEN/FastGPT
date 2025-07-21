@@ -1,81 +1,184 @@
-import { markdownProcess } from '@fastgpt/global/common/string/markdown';
 import { uploadMongoImg } from '../image/controller';
-import { MongoImageTypeEnum } from '@fastgpt/global/common/file/image/constants';
-import { addHours } from 'date-fns';
-import { ReadFileByBufferParams } from './type';
-import { readFileRawText } from '../read/rawText';
-import { readMarkdown } from '../read/markdown';
-import { readHtmlRawText } from '../read/html';
-import { readPdfFile } from '../read/pdf';
-import { readWordFile } from '../read/word';
-import { readCsvRawText } from '../read/csv';
-import { readPptxRawText } from '../read/pptx';
-import { readXlsxRawText } from '../read/xlsx';
+import FormData from 'form-data';
+import fs from 'fs';
+import type { ReadFileResponse } from '../../../worker/readFile/type';
+import axios from 'axios';
+import { addLog } from '../../system/log';
+import { batchRun } from '@fastgpt/global/common/system/utils';
+import { matchMdImg } from '@fastgpt/global/common/string/markdown';
+import { createPdfParseUsage } from '../../../support/wallet/usage/controller';
+import { useDoc2xServer } from '../../../thirdProvider/doc2x';
+import { readRawContentFromBuffer } from '../../../worker/function';
 
-export const initMarkdownText = ({
-  teamId,
-  md,
-  metadata
-}: {
-  md: string;
+export type readRawTextByLocalFileParams = {
   teamId: string;
+  tmbId: string;
+  path: string;
+  encoding: string;
+  customPdfParse?: boolean;
+  getFormatText?: boolean;
   metadata?: Record<string, any>;
-}) =>
-  markdownProcess({
-    rawText: md,
-    uploadImgController: (base64Img) =>
-      uploadMongoImg({
-        type: MongoImageTypeEnum.collectionImage,
-        base64Img,
-        teamId,
-        metadata,
-        expiredTime: addHours(new Date(), 2)
-      })
-  });
+};
+export const readRawTextByLocalFile = async (params: readRawTextByLocalFileParams) => {
+  const { path } = params;
 
-export const readFileRawContent = async ({
+  const extension = path?.split('.')?.pop()?.toLowerCase() || '';
+
+  const buffer = await fs.promises.readFile(path);
+
+  return readRawContentByFileBuffer({
+    extension,
+    customPdfParse: params.customPdfParse,
+    getFormatText: params.getFormatText,
+    teamId: params.teamId,
+    tmbId: params.tmbId,
+    encoding: params.encoding,
+    buffer,
+    metadata: params.metadata
+  });
+};
+
+export const readRawContentByFileBuffer = async ({
+  teamId,
+  tmbId,
+
   extension,
-  csvFormat,
-  params
+  buffer,
+  encoding,
+  metadata,
+  customPdfParse = false,
+  getFormatText = true
 }: {
-  csvFormat?: boolean;
+  teamId: string;
+  tmbId: string;
+
   extension: string;
-  params: ReadFileByBufferParams;
-}) => {
-  switch (extension) {
-    case 'txt':
-      return readFileRawText(params);
-    case 'md':
-      return readMarkdown(params);
-    case 'html':
-      return readHtmlRawText(params);
-    case 'pdf':
-      return readPdfFile(params);
-    case 'docx':
-      return readWordFile(params);
-    case 'pptx':
-      return readPptxRawText(params);
-    case 'xlsx':
-      const xlsxResult = await readXlsxRawText(params);
-      if (csvFormat) {
-        return {
-          rawText: xlsxResult.formatText || ''
-        };
+  buffer: Buffer;
+  encoding: string;
+  metadata?: Record<string, any>;
+
+  customPdfParse?: boolean;
+  getFormatText?: boolean;
+}): Promise<{
+  rawText: string;
+}> => {
+  const systemParse = () =>
+    readRawContentFromBuffer({
+      extension,
+      encoding,
+      buffer
+    });
+  const parsePdfFromCustomService = async (): Promise<ReadFileResponse> => {
+    const url = global.systemEnv.customPdfParse?.url;
+    const token = global.systemEnv.customPdfParse?.key;
+    if (!url) return systemParse();
+
+    const start = Date.now();
+    addLog.info('Parsing files from an external service');
+
+    const data = new FormData();
+    data.append('file', buffer, {
+      filename: `file.${extension}`
+    });
+    const { data: response } = await axios.post<{
+      pages: number;
+      markdown: string;
+      error?: Object | string;
+    }>(url, data, {
+      timeout: 600000,
+      headers: {
+        ...data.getHeaders(),
+        Authorization: token ? `Bearer ${token}` : undefined
       }
-      return {
-        rawText: xlsxResult.rawText
-      };
-    case 'csv':
-      const csvResult = await readCsvRawText(params);
-      if (csvFormat) {
-        return {
-          rawText: csvResult.formatText || ''
-        };
+    });
+
+    if (response.error) {
+      return Promise.reject(response.error);
+    }
+
+    addLog.info(`Custom file parsing is complete, time: ${Date.now() - start}ms`);
+
+    const rawText = response.markdown;
+    const { text, imageList } = matchMdImg(rawText);
+
+    createPdfParseUsage({
+      teamId,
+      tmbId,
+      pages: response.pages
+    });
+
+    return {
+      rawText: text,
+      formatText: text,
+      imageList
+    };
+  };
+  // Doc2x api
+  const parsePdfFromDoc2x = async (): Promise<ReadFileResponse> => {
+    const doc2xKey = global.systemEnv.customPdfParse?.doc2xKey;
+    if (!doc2xKey) return systemParse();
+
+    const { pages, text, imageList } = await useDoc2xServer({ apiKey: doc2xKey }).parsePDF(buffer);
+
+    createPdfParseUsage({
+      teamId,
+      tmbId,
+      pages
+    });
+
+    return {
+      rawText: text,
+      formatText: text,
+      imageList
+    };
+  };
+  // Custom read file service
+  const pdfParseFn = async (): Promise<ReadFileResponse> => {
+    if (!customPdfParse) return systemParse();
+    if (global.systemEnv.customPdfParse?.url) return parsePdfFromCustomService();
+    if (global.systemEnv.customPdfParse?.doc2xKey) return parsePdfFromDoc2x();
+
+    return systemParse();
+  };
+
+  const start = Date.now();
+  addLog.debug(`Start parse file`, { extension });
+
+  let { rawText, formatText, imageList } = await (async () => {
+    if (extension === 'pdf') {
+      return await pdfParseFn();
+    }
+    return await systemParse();
+  })();
+
+  addLog.debug(`Parse file success, time: ${Date.now() - start}ms. `);
+
+  // markdown data format
+  if (imageList) {
+    await batchRun(imageList, async (item) => {
+      const src = await (async () => {
+        try {
+          return await uploadMongoImg({
+            base64Img: `data:${item.mime};base64,${item.base64}`,
+            teamId,
+            metadata: {
+              ...metadata,
+              mime: item.mime
+            }
+          });
+        } catch (error) {
+          addLog.warn('Upload file image error', { error });
+          return 'Upload load image error';
+        }
+      })();
+      rawText = rawText.replace(item.uuid, src);
+      if (formatText) {
+        formatText = formatText.replace(item.uuid, src);
       }
-      return {
-        rawText: csvResult.rawText
-      };
-    default:
-      return Promise.reject('Only support .txt, .md, .html, .pdf, .docx, pptx, .csv, .xlsx');
+    });
   }
+
+  addLog.debug(`Upload file success, time: ${Date.now() - start}ms`);
+
+  return { rawText: getFormatText ? formatText || rawText : rawText };
 };

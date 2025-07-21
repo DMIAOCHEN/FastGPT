@@ -1,69 +1,117 @@
-import { Button, ModalBody, ModalFooter, useDisclosure } from '@chakra-ui/react';
-import React from 'react';
+import type { BoxProps } from '@chakra-ui/react';
+import { Box, Button, ModalBody, ModalFooter, useDisclosure } from '@chakra-ui/react';
+import React, { useMemo } from 'react';
 import { editorStateToText } from './utils';
 import Editor from './Editor';
 import MyModal from '../../MyModal';
 import { useTranslation } from 'next-i18next';
-import { EditorState, type LexicalEditor } from 'lexical';
-import { EditorVariablePickerType } from './type.d';
-import { useCallback, useTransition } from 'react';
+import type { EditorState, LexicalEditor } from 'lexical';
+import type { FormPropsType } from './type.d';
+import { type EditorVariableLabelPickerType, type EditorVariablePickerType } from './type.d';
+import { useCallback } from 'react';
 
 const PromptEditor = ({
   showOpenModal = true,
-  showResize = true,
   variables = [],
+  variableLabels = [],
   value,
   onChange,
   onBlur,
-  h,
+  minH,
+  maxH,
+  maxLength,
   placeholder,
-  title
+  title,
+  isInvalid,
+  isDisabled,
+  ...props
 }: {
   showOpenModal?: boolean;
-  showResize?: boolean;
   variables?: EditorVariablePickerType[];
+  variableLabels?: EditorVariableLabelPickerType[];
   value?: string;
   onChange?: (text: string) => void;
   onBlur?: (text: string) => void;
-  h?: number;
+  minH?: number;
+  maxH?: number;
+  maxLength?: number;
   placeholder?: string;
   title?: string;
-}) => {
+
+  isInvalid?: boolean;
+  isDisabled?: boolean;
+} & FormPropsType) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const [, startSts] = useTransition();
   const { t } = useTranslation();
 
-  const onChangeInput = useCallback((editorState: EditorState, editor: LexicalEditor) => {
-    const text = editorStateToText(editor).replaceAll('}}{{', '}} {{');
-    onChange?.(text);
-  }, []);
-  const onBlurInput = useCallback((editor: LexicalEditor) => {
-    startSts(() => {
-      const text = editorStateToText(editor).replaceAll('}}{{', '}} {{');
+  const onChangeInput = useCallback(
+    (editorState: EditorState, editor: LexicalEditor) => {
+      const text = editorStateToText(editor);
+      onChange?.(text);
+    },
+    [onChange]
+  );
+  const onBlurInput = useCallback(
+    (editor: LexicalEditor) => {
+      const text = editorStateToText(editor);
       onBlur?.(text);
-    });
-  }, []);
+    },
+    [onBlur]
+  );
+  const formattedValue = useMemo(() => {
+    if (typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+    return value;
+  }, [value]);
 
   return (
     <>
-      <Editor
-        showResize={showResize}
-        showOpenModal={showOpenModal}
-        onOpenModal={onOpen}
-        variables={variables}
-        h={h}
-        value={value}
-        onChange={onChangeInput}
-        onBlur={onBlurInput}
-        placeholder={placeholder}
-      />
-      <MyModal isOpen={isOpen} onClose={onClose} iconSrc="modal/edit" title={title} w={'full'}>
+      <Box position="relative">
+        <Editor
+          showOpenModal={showOpenModal}
+          onOpenModal={onOpen}
+          variables={variables}
+          variableLabels={variableLabels}
+          minH={minH}
+          maxH={maxH}
+          maxLength={maxLength}
+          value={formattedValue}
+          onChange={onChangeInput}
+          onBlur={onBlurInput}
+          placeholder={placeholder}
+          isInvalid={isInvalid}
+          {...props}
+        />
+        {isDisabled && (
+          <Box
+            position="absolute"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="rgba(255, 255, 255, 0.4)"
+            borderRadius="md"
+            zIndex={1}
+            cursor="not-allowed"
+          />
+        )}
+      </Box>
+      <MyModal
+        isOpen={isOpen}
+        onClose={onClose}
+        iconSrc="modal/edit"
+        title={title || t('common:Edit')}
+        w={'full'}
+      >
         <ModalBody>
           <Editor
-            h={400}
-            showResize
+            minH={400}
+            maxH={400}
+            maxLength={maxLength}
             showOpenModal={false}
             variables={variables}
+            variableLabels={variableLabels}
             value={value}
             onChange={onChangeInput}
             onBlur={onBlurInput}
@@ -71,8 +119,8 @@ const PromptEditor = ({
           />
         </ModalBody>
         <ModalFooter>
-          <Button mr={2} onClick={onClose}>
-            {t('common.Confirm')}
+          <Button mr={2} onClick={onClose} px={6}>
+            {t('common:Confirm')}
           </Button>
         </ModalFooter>
       </MyModal>

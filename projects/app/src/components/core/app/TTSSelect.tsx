@@ -1,75 +1,110 @@
 import MyIcon from '@fastgpt/web/components/common/Icon';
-import MyTooltip from '@/components/MyTooltip';
-import { QuestionOutlineIcon } from '@chakra-ui/icons';
-import { Box, Button, Flex, ModalBody, useDisclosure, Image } from '@chakra-ui/react';
+import MyTooltip from '@fastgpt/web/components/common/MyTooltip';
+import { Box, Button, Flex, ModalBody, useDisclosure, Image, HStack } from '@chakra-ui/react';
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'next-i18next';
-import { TTSTypeEnum } from '@/constants/app';
+import { TTSTypeEnum } from '@/web/core/app/constants';
 import type { AppTTSConfigType } from '@fastgpt/global/core/app/type.d';
 import { useAudioPlay } from '@/web/common/utils/voice';
 import { useSystemStore } from '@/web/common/system/useSystemStore';
 import MyModal from '@fastgpt/web/components/common/MyModal';
 import MySlider from '@/components/Slider';
-import MySelect from '@fastgpt/web/components/common/MySelect';
+import { defaultTTSConfig } from '@fastgpt/global/core/app/constants';
+import ChatFunctionTip from './Tip';
+import FormLabel from '@fastgpt/web/components/common/MyBox/FormLabel';
+import MyImage from '@fastgpt/web/components/common/Image/MyImage';
+import { useContextSelector } from 'use-context-selector';
+import { AppContext } from '@/pageComponents/app/detail/context';
+import Avatar from '@fastgpt/web/components/common/Avatar';
+import { getModelProvider } from '@fastgpt/global/core/ai/provider';
+import MultipleRowSelect from '@fastgpt/web/components/common/MySelect/MultipleRowSelect';
 
 const TTSSelect = ({
-  value,
+  value = defaultTTSConfig,
   onChange
 }: {
-  value: AppTTSConfigType;
+  value?: AppTTSConfigType;
   onChange: (e: AppTTSConfigType) => void;
 }) => {
   const { t } = useTranslation();
-  const { audioSpeechModelList } = useSystemStore();
+  const { ttsModelList } = useSystemStore();
   const { isOpen, onOpen, onClose } = useDisclosure();
 
-  const list = useMemo(
+  const appId = useContextSelector(AppContext, (v) => v.appId);
+
+  const selectorList = useMemo(
     () => [
-      { label: t('core.app.tts.Close'), value: TTSTypeEnum.none },
-      { label: t('core.app.tts.Web'), value: TTSTypeEnum.web },
-      ...audioSpeechModelList.map((item) => item?.voices || []).flat()
+      { label: t('app:tts_close'), value: TTSTypeEnum.none, children: [] },
+      { label: t('app:tts_browser'), value: TTSTypeEnum.web, children: [] },
+      ...ttsModelList.map((model) => {
+        const providerData = getModelProvider(model.provider);
+        return {
+          label: (
+            <HStack>
+              <Avatar borderRadius={'0'} w={'1.25rem'} src={providerData.avatar} />
+              <Box>{t(model.name as any)}</Box>
+            </HStack>
+          ),
+          value: model.model,
+          children:
+            model.voices?.map((voice) => ({
+              label: voice.label,
+              value: voice.value
+            })) || []
+        };
+      })
     ],
-    [audioSpeechModelList, t]
+    [ttsModelList, t]
   );
 
   const formatValue = useMemo(() => {
     if (!value || !value.type) {
-      return TTSTypeEnum.none;
+      return [TTSTypeEnum.none, undefined];
     }
     if (value.type === TTSTypeEnum.none || value.type === TTSTypeEnum.web) {
-      return value.type;
+      return [value.type, undefined];
     }
-    return value.voice;
+
+    return [value.model, value.voice];
   }, [value]);
-  const formLabel = useMemo(
-    () => list.find((item) => item.value === formatValue)?.label || t('common.UnKnow'),
-    [formatValue, list, t]
-  );
+  const formLabel = useMemo(() => {
+    const provider = selectorList.find((item) => item.value === formatValue[0]) || selectorList[0];
+    const voice = provider.children.find((item) => item.value === formatValue[1]);
+    return (
+      <Box maxW={'220px'} className="textEllipsis">
+        {voice ? (
+          <Flex alignItems={'center'}>
+            <Box>{provider.label}</Box>
+            <Box>/</Box>
+            <Box>{voice.label}</Box>
+          </Flex>
+        ) : (
+          provider.label
+        )}
+      </Box>
+    );
+  }, [formatValue, selectorList]);
 
   const { playAudioByText, cancelAudio, audioLoading, audioPlaying } = useAudioPlay({
+    appId,
     ttsConfig: value
   });
 
   const onclickChange = useCallback(
-    (e: string) => {
-      if (e === TTSTypeEnum.none || e === TTSTypeEnum.web) {
-        onChange({ type: e as `${TTSTypeEnum}` });
+    (e: string[]) => {
+      console.log(e, '-=');
+      if (e[0] === TTSTypeEnum.none || e[0] === TTSTypeEnum.web) {
+        onChange({ type: e[0] });
       } else {
-        const audioModel = audioSpeechModelList.find((item) =>
-          item.voices?.find((voice) => voice.value === e)
-        );
-        if (!audioModel) {
-          return;
-        }
         onChange({
           ...value,
           type: TTSTypeEnum.model,
-          model: audioModel.model,
-          voice: e
+          model: e[0],
+          voice: e[1]
         });
       }
     },
-    [audioSpeechModelList, onChange, value]
+    [ttsModelList, onChange, value]
   );
 
   const onCloseTTSModal = useCallback(() => {
@@ -80,41 +115,41 @@ const TTSSelect = ({
   return (
     <Flex alignItems={'center'}>
       <MyIcon name={'core/app/simpleMode/tts'} mr={2} w={'20px'} />
-      <Box>{t('core.app.TTS')}</Box>
-      <MyTooltip label={t('core.app.TTS Tip')} forceShow>
-        <QuestionOutlineIcon display={['none', 'inline']} ml={1} />
-      </MyTooltip>
+      <FormLabel color={'myGray.600'}>{t('common:core.app.TTS')}</FormLabel>
+      <ChatFunctionTip type={'tts'} />
       <Box flex={1} />
-      <MyTooltip label={t('core.app.Select TTS')}>
+      <MyTooltip label={t('common:core.app.Select TTS')}>
         <Button
           variant={'transparentBase'}
           iconSpacing={1}
           size={'sm'}
-          fontSize={'md'}
           mr={'-5px'}
           onClick={onOpen}
+          color={'myGray.600'}
         >
           {formLabel}
         </Button>
       </MyTooltip>
       <MyModal
-        title={
-          <>
-            <MyIcon name={'core/app/simpleMode/tts'} mr={2} w={'20px'} />
-            {t('core.app.TTS')}
-          </>
-        }
+        iconSrc="core/app/simpleMode/tts"
+        title={t('common:core.app.TTS')}
         isOpen={isOpen}
         onClose={onCloseTTSModal}
         w={'500px'}
       >
         <ModalBody px={[5, 16]} py={[4, 8]}>
           <Flex justifyContent={'space-between'} alignItems={'center'}>
-            {t('core.app.tts.Speech model')}
-            <MySelect w={'220px'} value={formatValue} list={list} onchange={onclickChange} />
+            <FormLabel>{t('common:core.app.tts.Speech model')}</FormLabel>
+            <MultipleRowSelect
+              rowMinWidth="160px"
+              label={<Box minW={'150px'}>{formLabel}</Box>}
+              value={formatValue}
+              list={selectorList}
+              onSelect={onclickChange}
+            />
           </Flex>
           <Flex mt={8} justifyContent={'space-between'}>
-            {t('core.app.tts.Speech speed')}
+            <FormLabel>{t('common:core.app.tts.Speech speed')}</FormLabel>
             <MySlider
               markList={[
                 { label: '0.3', value: 0.3 },
@@ -133,11 +168,11 @@ const TTSSelect = ({
               }}
             />
           </Flex>
-          {formatValue !== TTSTypeEnum.none && (
+          {formatValue[0] !== TTSTypeEnum.none && (
             <Flex mt={10} justifyContent={'end'}>
               {audioPlaying ? (
                 <Flex>
-                  <Image src="/icon/speaking.gif" w={'24px'} alt={''} />
+                  <MyImage src="/icon/speaking.gif" w={'24px'} alt={''} />
                   <Button
                     ml={2}
                     variant={'grayBase'}
@@ -146,7 +181,7 @@ const TTSSelect = ({
                     leftIcon={<MyIcon name={'core/chat/stopSpeech'} w={'16px'} />}
                     onClick={cancelAudio}
                   >
-                    {t('core.chat.tts.Stop Speech')}
+                    {t('common:core.chat.tts.Stop Speech')}
                   </Button>
                 </Flex>
               ) : (
@@ -155,11 +190,11 @@ const TTSSelect = ({
                   leftIcon={<MyIcon name={'core/app/headphones'} w={'16px'} />}
                   onClick={() => {
                     playAudioByText({
-                      text: t('core.app.tts.Test Listen Text')
+                      text: t('common:core.app.tts.Test Listen Text')
                     });
                   }}
                 >
-                  {t('core.app.tts.Test Listen')}
+                  {t('common:core.app.tts.Test Listen')}
                 </Button>
               )}
             </Flex>

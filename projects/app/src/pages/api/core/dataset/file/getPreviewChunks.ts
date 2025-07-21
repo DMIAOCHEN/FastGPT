@@ -1,80 +1,118 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { jsonRes } from '@fastgpt/service/common/response';
-import { connectToDatabase } from '@/service/mongo';
-import { BucketNameEnum } from '@fastgpt/global/common/file/constants';
-import { authFile } from '@fastgpt/service/support/permission/auth/file';
-import { PostPreviewFilesChunksProps } from '@/global/core/dataset/api';
-import { readFileContentFromMongo } from '@fastgpt/service/common/file/gridfs/controller';
-import { splitText2Chunks } from '@fastgpt/global/common/string/textSplitter';
-import { ImportDataSourceEnum } from '@fastgpt/global/core/dataset/constants';
-import { parseCsvTable2Chunks } from '@fastgpt/service/core/dataset/training/utils';
+import { DatasetSourceReadTypeEnum } from '@fastgpt/global/core/dataset/constants';
+import { rawText2Chunks, readDatasetSourceRawText } from '@fastgpt/service/core/dataset/read';
+import { NextAPI } from '@/service/middleware/entry';
+import { type ApiRequestProps } from '@fastgpt/service/type/next';
+import {
+  OwnerPermissionVal,
+  WritePermissionVal
+} from '@fastgpt/global/support/permission/constant';
+import { authCollectionFile } from '@fastgpt/service/support/permission/auth/file';
+import { authDataset } from '@fastgpt/service/support/permission/dataset/auth';
+import {
+  computedCollectionChunkSettings,
+  getLLMMaxChunkSize
+} from '@fastgpt/global/core/dataset/training/utils';
+import { CommonErrEnum } from '@fastgpt/global/common/error/code/common';
+import { getEmbeddingModel, getLLMModel } from '@fastgpt/service/core/ai/model';
+import type { ChunkSettingsType } from '@fastgpt/global/core/dataset/type';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
-  try {
-    await connectToDatabase();
+export type PostPreviewFilesChunksProps = ChunkSettingsType & {
+  datasetId: string;
+  type: DatasetSourceReadTypeEnum;
+  sourceId: string;
 
-    const { type, sourceId, chunkSize, customSplitChar, overlapRatio } =
-      req.body as PostPreviewFilesChunksProps;
+  customPdfParse?: boolean;
 
-    if (!sourceId) {
-      throw new Error('fileIdList is empty');
-    }
-    if (chunkSize > 30000) {
-      throw new Error('chunkSize is too large, should be less than 30000');
-    }
+  // Chunk settings
+  overlapRatio: number;
 
-    const { chunks } = await (async () => {
-      if (type === ImportDataSourceEnum.fileLocal) {
-        const { file, teamId } = await authFile({ req, authToken: true, fileId: sourceId });
-        const fileId = String(file._id);
+  // Read params
+  selector?: string;
+  externalFileId?: string;
+};
+export type PreviewChunksResponse = {
+  chunks: {
+    q: string;
+    a: string;
+  }[];
+  total: number;
+};
 
-        const { rawText } = await readFileContentFromMongo({
-          teamId,
-          bucketName: BucketNameEnum.dataset,
-          fileId,
-          csvFormat: true
-        });
-        // split chunks (5 chunk)
-        const sliceRawText = 10 * chunkSize;
-        const { chunks } = splitText2Chunks({
-          text: rawText.slice(0, sliceRawText),
-          chunkLen: chunkSize,
-          overlapRatio,
-          customReg: customSplitChar ? [customSplitChar] : []
-        });
+async function handler(
+  req: ApiRequestProps<PostPreviewFilesChunksProps>
+): Promise<PreviewChunksResponse> {
+  let {
+    type,
+    sourceId,
+    customPdfParse = false,
 
-        return {
-          chunks: chunks.map((item) => ({
-            q: item,
-            a: ''
-          }))
-        };
-      }
-      if (type === ImportDataSourceEnum.csvTable) {
-        const { file, teamId } = await authFile({ req, authToken: true, fileId: sourceId });
-        const fileId = String(file._id);
-        const { rawText } = await readFileContentFromMongo({
-          teamId,
-          bucketName: BucketNameEnum.dataset,
-          fileId,
-          csvFormat: false
-        });
-        const { chunks } = parseCsvTable2Chunks(rawText);
+    overlapRatio,
+    selector,
+    datasetId,
+    externalFileId,
 
-        return {
-          chunks: chunks || []
-        };
-      }
-      return { chunks: [] };
-    })();
+    ...chunkSettings
+  } = req.body;
 
-    jsonRes<{ q: string; a: string }[]>(res, {
-      data: chunks.slice(0, 5)
-    });
-  } catch (error) {
-    jsonRes(res, {
-      code: 500,
-      error
-    });
+  if (!sourceId) {
+    throw new Error('sourceId is empty');
   }
+
+  const fileAuthRes =
+    type === DatasetSourceReadTypeEnum.fileLocal
+      ? await authCollectionFile({
+          req,
+          authToken: true,
+          authApiKey: true,
+          fileId: sourceId,
+          per: OwnerPermissionVal
+        })
+      : undefined;
+
+  const { dataset, teamId, tmbId } = await authDataset({
+    req,
+    authApiKey: true,
+    authToken: true,
+    datasetId,
+    per: WritePermissionVal
+  });
+
+  if (fileAuthRes && String(fileAuthRes.tmbId) !== String(tmbId) && !fileAuthRes.isRoot) {
+    return Promise.reject(CommonErrEnum.unAuthFile);
+  }
+
+  const formatChunkSettings = computedCollectionChunkSettings({
+    ...chunkSettings,
+    llmModel: getLLMModel(dataset.agentModel),
+    vectorModel: getEmbeddingModel(dataset.vectorModel)
+  });
+
+  const { rawText } = await readDatasetSourceRawText({
+    teamId,
+    tmbId,
+    type,
+    sourceId,
+    selector,
+    externalFileId,
+    customPdfParse,
+    apiDatasetServer: dataset.apiDatasetServer
+  });
+
+  const chunks = await rawText2Chunks({
+    rawText,
+    chunkTriggerType: formatChunkSettings.chunkTriggerType,
+    chunkTriggerMinSize: formatChunkSettings.chunkTriggerMinSize,
+    chunkSize: formatChunkSettings.chunkSize,
+    paragraphChunkDeep: formatChunkSettings.paragraphChunkDeep,
+    paragraphChunkMinSize: formatChunkSettings.paragraphChunkMinSize,
+    maxSize: getLLMMaxChunkSize(getLLMModel(dataset.agentModel)),
+    overlapRatio,
+    customReg: formatChunkSettings.chunkSplitter ? [formatChunkSettings.chunkSplitter] : []
+  });
+
+  return {
+    chunks: chunks.slice(0, 10),
+    total: chunks.length
+  };
 }
+export default NextAPI(handler);

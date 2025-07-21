@@ -1,8 +1,7 @@
-import { connectionMongo, type Model } from '../../../common/mongo';
-const { Schema, model, models } = connectionMongo;
-import { TTSBufferSchemaType } from './type.d';
+import { Schema, getMongoModel } from '../../../common/mongo';
+import { type TTSBufferSchemaType } from './type.d';
 
-export const collectionName = 'buffer.tts';
+export const collectionName = 'buffer_tts';
 
 const TTSBufferSchema = new Schema({
   bufferId: {
@@ -31,6 +30,4 @@ try {
   console.log(error);
 }
 
-export const MongoTTSBuffer: Model<TTSBufferSchemaType> =
-  models[collectionName] || model(collectionName, TTSBufferSchema);
-MongoTTSBuffer.syncIndexes();
+export const MongoTTSBuffer = getMongoModel<TTSBufferSchemaType>(collectionName, TTSBufferSchema);

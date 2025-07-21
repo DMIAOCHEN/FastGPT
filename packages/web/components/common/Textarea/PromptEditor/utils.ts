@@ -1,9 +1,19 @@
-import type { Klass, LexicalEditor, LexicalNode } from 'lexical';
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+import type { DecoratorNode, Klass, LexicalEditor, LexicalNode } from 'lexical';
 import type { EntityMatch } from '@lexical/text';
 import { $createTextNode, $getRoot, $isTextNode, TextNode } from 'lexical';
 import { useCallback } from 'react';
+import type { VariableLabelNode } from './plugins/VariableLabelPlugin/node';
+import type { VariableNode } from './plugins/VariablePlugin/node';
 
-export function registerLexicalTextEntity<T extends TextNode>(
+export function registerLexicalTextEntity<T extends TextNode | VariableLabelNode | VariableNode>(
   editor: LexicalEditor,
   getMatch: (text: string) => null | EntityMatch,
   targetNode: Klass<T>,
@@ -13,7 +23,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
     return node instanceof targetNode;
   };
 
-  const replaceWithSimpleText = (node: TextNode): void => {
+  const replaceWithSimpleText = (node: TextNode | VariableLabelNode | VariableNode): void => {
     const textNode = $createTextNode(node.getTextContent());
     textNode.setFormat(node.getFormat());
     node.replace(textNode);
@@ -92,12 +102,6 @@ export function registerLexicalTextEntity<T extends TextNode>(
             return;
           }
         }
-      } else {
-        const nextMatch = getMatch(nextText);
-
-        if (nextMatch !== null && nextMatch.start === 0) {
-          return;
-        }
       }
 
       if (match === null) {
@@ -136,7 +140,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
       return;
     }
 
-    if (text.length > match.end) {
+    if (text.length > match.end && $isTextNode(node)) {
       // This will split out the rest of the text as simple text
       node.splitText(match.end);
 
@@ -163,7 +167,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
   };
 
   const removePlainTextTransform = editor.registerNodeTransform(TextNode, textNodeTransform);
-  const removeReverseNodeTransform = editor.registerNodeTransform<T>(
+  const removeReverseNodeTransform = editor.registerNodeTransform<any>(
     targetNode,
     reverseNodeTransform
   );
@@ -171,8 +175,9 @@ export function registerLexicalTextEntity<T extends TextNode>(
   return [removePlainTextTransform, removeReverseNodeTransform];
 }
 
-export function textToEditorState(text: string = '') {
-  const paragraph = text?.split('\n');
+export function textToEditorState(text = '') {
+  const paragraph = typeof text === 'string' ? text?.split('\n') : [''];
+
   return JSON.stringify({
     root: {
       children: paragraph.map((p) => {
@@ -216,6 +221,10 @@ export function editorStateToText(editor: LexicalEditor) {
 `);
       } else if (child.text) {
         paragraphText.push(child.text);
+      } else if (child.type === 'variableLabel') {
+        paragraphText.push(child.variableKey);
+      } else if (child.type === 'Variable') {
+        paragraphText.push(child.variableKey);
       }
     });
     editorStateTextString.push(paragraphText.join(''));

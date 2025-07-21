@@ -1,7 +1,8 @@
-import { StandardSubLevelEnum, SubModeEnum, SubStatusEnum, SubTypeEnum } from './constants';
+import type { StandardSubLevelEnum, SubModeEnum, SubTypeEnum } from './constants';
 
 // Content of plan
 export type TeamStandardSubPlanItemType = {
+  name?: string;
   price: number; // read price / month
   pointPrice: number; // read price/ one thousand
   totalPoints: number; // n
@@ -14,7 +15,7 @@ export type TeamStandardSubPlanItemType = {
   permissionCustomApiKey: boolean;
   permissionCustomCopyright: boolean; // feature
   permissionWebsiteSync: boolean;
-  permissionReRank: boolean;
+  permissionTeamOperationLog: boolean;
 };
 
 export type StandSubPlanLevelMapType = Record<
@@ -24,6 +25,7 @@ export type StandSubPlanLevelMapType = Record<
 
 export type SubPlanType = {
   [SubTypeEnum.standard]: StandSubPlanLevelMapType;
+  planDescriptionUrl?: string;
   [SubTypeEnum.extraDatasetSize]: {
     price: number;
   };
@@ -36,24 +38,24 @@ export type TeamSubSchema = {
   _id: string;
   teamId: string;
   type: `${SubTypeEnum}`;
-  status: `${SubStatusEnum}`;
   startTime: Date;
   expiredTime: Date;
-  price: number;
 
   currentMode: `${SubModeEnum}`;
   nextMode: `${SubModeEnum}`;
-  currentSubLevel: `${StandardSubLevelEnum}`;
-  nextSubLevel: `${StandardSubLevelEnum}`;
+  currentSubLevel: StandardSubLevelEnum;
+  nextSubLevel: StandardSubLevelEnum;
+  maxTeamMember?: number;
+  maxApp?: number;
+  maxDataset?: number;
 
-  pointPrice: number;
   totalPoints: number;
   surplusPoints: number;
 
   currentExtraDatasetSize: number;
 };
 
-export type FeTeamPlanStatusType = {
+export type TeamPlanStatusType = {
   [SubTypeEnum.standard]?: TeamSubSchema;
   standardConstants?: TeamStandardSubPlanItemType;
 
@@ -62,5 +64,11 @@ export type FeTeamPlanStatusType = {
 
   // standard + extra
   datasetMaxSize: number;
+};
+
+export type ClientTeamPlanStatusType = TeamPlanStatusType & {
+  usedMember: number;
+  usedAppAmount: number;
   usedDatasetSize: number;
+  usedDatasetIndexSize: number;
 };

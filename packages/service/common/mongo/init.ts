@@ -1,27 +1,47 @@
-import mongoose from './index';
+import { delay } from '@fastgpt/global/common/system/utils';
+import { addLog } from '../system/log';
+import type { Mongoose } from 'mongoose';
+
+const maxConnecting = Math.max(30, Number(process.env.DB_MAX_LINK || 20));
 
 /**
  * connect MongoDB and init data
  */
-export async function connectMongo({
-  beforeHook,
-  afterHook
-}: {
-  beforeHook?: () => any;
-  afterHook?: () => any;
-}): Promise<void> {
-  if (global.mongodb) {
-    return;
+export async function connectMongo(db: Mongoose, url: string): Promise<Mongoose> {
+  /* Connecting, connected will return */
+  if (db.connection.readyState !== 0) {
+    return db;
   }
-  global.mongodb = mongoose;
 
-  beforeHook && (await beforeHook());
-
-  console.log('mongo start connect');
+  console.log('MongoDB start connect');
   try {
-    mongoose.set('strictQuery', true);
-    const maxConnecting = Math.max(30, Number(process.env.DB_MAX_LINK || 20));
-    await mongoose.connect(process.env.MONGODB_URI as string, {
+    // Remove existing listeners to prevent duplicates
+    db.connection.removeAllListeners('error');
+    db.connection.removeAllListeners('disconnected');
+    db.set('strictQuery', 'throw');
+
+    db.connection.on('error', async (error) => {
+      console.log('mongo error', error);
+      try {
+        if (db.connection.readyState !== 0) {
+          await db.disconnect();
+          await delay(1000);
+          await connectMongo(db, url);
+        }
+      } catch (error) {}
+    });
+    db.connection.on('disconnected', async () => {
+      console.log('mongo disconnected');
+      try {
+        if (db.connection.readyState !== 0) {
+          await db.disconnect();
+          await delay(1000);
+          await connectMongo(db, url);
+        }
+      } catch (error) {}
+    });
+
+    const options = {
       bufferCommands: true,
       maxConnecting: maxConnecting,
       maxPoolSize: maxConnecting,
@@ -32,20 +52,18 @@ export async function connectMongo({
       maxIdleTimeMS: 300000,
       retryWrites: true,
       retryReads: true
-    });
+    };
 
-    mongoose.connection.on('error', (error) => {
-      console.log('mongo error', error);
-      global.mongodb?.disconnect();
-      global.mongodb = undefined;
-    });
+    db.connect(url, options);
 
     console.log('mongo connected');
-
-    afterHook && (await afterHook());
+    return db;
   } catch (error) {
-    global.mongodb.disconnect();
-    console.log('error->', 'mongo connect error', error);
-    global.mongodb = undefined;
+    addLog.error('Mongo connect error', error);
+
+    await db.disconnect();
+
+    await delay(1000);
+    return connectMongo(db, url);
   }
 }

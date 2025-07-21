@@ -1,12 +1,8 @@
 import type { PushDatasetDataChunkProps } from '@fastgpt/global/core/dataset/api';
-import { TrainingModeEnum } from '@fastgpt/global/core/dataset/constants';
-import { ImportProcessWayEnum, ImportSourceTypeEnum } from './constants';
-import { UseFormReturn } from 'react-hook-form';
-
-export type ImportDataComponentProps = {
-  activeStep: number;
-  goToNext: () => void;
-};
+import type { TrainingModeEnum } from '@fastgpt/global/core/dataset/constants';
+import type { ChunkSettingModeEnum } from '@fastgpt/global/core/dataset/constants';
+import type { UseFormReturn } from 'react-hook-form';
+import type { APIFileItemType } from '@fastgpt/global/core/dataset/apiDataset/type';
 
 export type ImportSourceItemType = {
   id: string;
@@ -17,30 +13,39 @@ export type ImportSourceItemType = {
 
   // source
   sourceName: string;
-  sourceSize?: string;
   icon: string;
 
   // file
+  sourceSize?: string;
   isUploading?: boolean;
   uploadedFileRate?: number;
-  dbFileId?: string; // 存储在数据库里的文件Id，这个 ID 还是图片和集合的 metadata 中 relateId
-  file?: File;
+  dbFileId?: string; // 存储在数据库里的文件Id
+
+  file?: File; // Local file
 
   // link
   link?: string;
 
   // custom text
   rawText?: string;
+
+  // external file
+  externalFileUrl?: string;
+  externalFileId?: string;
+
+  // api dataset
+  apiFileId?: string;
+  apiFile?: APIFileItemType;
 };
 
 export type ImportSourceParamsType = UseFormReturn<
   {
     chunkSize: number;
     chunkOverlapRatio: number;
-    customSplitChar: string;
+    chunkSplitter: string;
     prompt: string;
     mode: TrainingModeEnum;
-    way: ImportProcessWayEnum;
+    way: ChunkSettingModeEnum;
   },
   any
 >;

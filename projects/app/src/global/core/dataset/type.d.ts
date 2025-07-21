@@ -1,24 +1,32 @@
 import { ParentTreePathItemType } from '@fastgpt/global/common/parentFolder/type';
-import {
-  DatasetCollectionSchemaType,
-  DatasetDataSchemaType
-} from '@fastgpt/global/core/dataset/type.d';
+import type { DatasetCollectionSchemaType } from '@fastgpt/global/core/dataset/type.d';
+import { DatasetDataSchemaType, DatasetTagType } from '@fastgpt/global/core/dataset/type.d';
+import type { DatasetPermission } from '@fastgpt/global/support/permission/dataset/controller';
 
 /* ================= dataset ===================== */
 
 /* ================= collection ===================== */
 export type DatasetCollectionsListItemType = {
   _id: string;
-  parentId?: string;
-  tmbId: string;
-  name: string;
+  parentId?: DatasetCollectionSchemaType['parentId'];
+  tmbId: DatasetCollectionSchemaType['tmbId'];
+  name: DatasetCollectionSchemaType['name'];
   type: DatasetCollectionSchemaType['type'];
-  updateTime: Date;
-  dataAmount: number;
-  trainingAmount: number;
+  createTime: DatasetCollectionSchemaType['createTime'];
+  updateTime: DatasetCollectionSchemaType['updateTime'];
+  forbid?: DatasetCollectionSchemaType['forbid'];
+  trainingType?: DatasetCollectionSchemaType['trainingType'];
+  tags?: string[];
+
+  externalFileId?: string;
+
   fileId?: string;
   rawLink?: string;
-  canWrite: boolean;
+  permission: DatasetPermission;
+
+  dataAmount: number;
+  trainingAmount: number;
+  hasError?: boolean;
 };
 
 /* ================= data ===================== */
@@ -26,8 +34,11 @@ export type DatasetDataListItemType = {
   _id: string;
   datasetId: string;
   collectionId: string;
-  q: string; // embedding content
-  a: string; // bonus content
+  q?: string;
+  a?: string;
+  imageId?: string;
+  imageSize?: number;
+  imagePreviewUrl?: string; //image preview url
   chunkIndex?: number;
-  indexes: DatasetDataSchemaType['indexes'];
+  updated?: boolean;
 };

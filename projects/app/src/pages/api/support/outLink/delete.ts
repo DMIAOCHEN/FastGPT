@@ -1,27 +1,46 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { jsonRes } from '@fastgpt/service/common/response';
-import { connectToDatabase } from '@/service/mongo';
 import { MongoOutLink } from '@fastgpt/service/support/outLink/schema';
-import { authOutLinkCrud } from '@fastgpt/service/support/permission/auth/outLink';
+import { authOutLinkCrud } from '@fastgpt/service/support/permission/publish/authLink';
+import { OwnerPermissionVal } from '@fastgpt/global/support/permission/constant';
+import type { ApiRequestProps } from '@fastgpt/service/type/next';
+import { NextAPI } from '@/service/middleware/entry';
+import { addAuditLog } from '@fastgpt/service/support/user/audit/util';
+import { AuditEventEnum } from '@fastgpt/global/support/user/audit/constants';
+import { getI18nAppType } from '@fastgpt/service/support/user/audit/util';
+
+export type OutLinkDeleteQuery = {
+  id: string;
+};
+export type OutLinkDeleteBody = {};
+export type OutLinkDeleteResponse = {};
 
 /* delete a shareChat by shareChatId */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    await connectToDatabase();
+async function handler(
+  req: ApiRequestProps<OutLinkDeleteBody, OutLinkDeleteQuery>
+): Promise<OutLinkDeleteResponse> {
+  const { id } = req.query;
+  const { tmbId, teamId, outLink, app } = await authOutLinkCrud({
+    req,
+    outLinkId: id,
+    authToken: true,
+    per: OwnerPermissionVal
+  });
 
-    const { id } = req.query as {
-      id: string;
-    };
+  await MongoOutLink.findByIdAndDelete(id);
 
-    await authOutLinkCrud({ req, outLinkId: id, authToken: true, per: 'owner' });
-
-    await MongoOutLink.findByIdAndRemove(id);
-
-    jsonRes(res);
-  } catch (err) {
-    jsonRes(res, {
-      code: 500,
-      error: err
+  (async () => {
+    addAuditLog({
+      tmbId,
+      teamId,
+      event: AuditEventEnum.DELETE_APP_PUBLISH_CHANNEL,
+      params: {
+        appName: app.name,
+        channelName: outLink.name,
+        appType: getI18nAppType(app.type)
+      }
     });
-  }
+  })();
+
+  return {};
 }
+
+export default NextAPI(handler);

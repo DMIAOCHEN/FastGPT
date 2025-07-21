@@ -1,34 +1,35 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { jsonRes } from '@fastgpt/service/common/response';
-import { withNextCors } from '@fastgpt/service/common/middle/cors';
 import { getUploadModel } from '@fastgpt/service/common/file/multer';
 import { removeFilesByPaths } from '@fastgpt/service/common/file/utils';
 import fs from 'fs';
-import { getAIApi } from '@fastgpt/service/core/ai/config';
 import { pushWhisperUsage } from '@/service/support/wallet/usage/push';
-import { authChatCert } from '@/service/support/permission/auth/chat';
-import { MongoApp } from '@fastgpt/service/core/app/schema';
-import { getGuideModule, splitGuideModule } from '@fastgpt/global/core/module/utils';
-import { OutLinkChatAuthProps } from '@fastgpt/global/support/permission/chat';
+import { authChatCrud } from '@/service/support/permission/auth/chat';
+import { type OutLinkChatAuthProps } from '@fastgpt/global/support/permission/chat';
+import { NextAPI } from '@/service/middleware/entry';
+import { aiTranscriptions } from '@fastgpt/service/core/ai/audio/transcriptions';
+import { useIPFrequencyLimit } from '@fastgpt/service/common/middle/reqFrequencyLimit';
+import { getDefaultSTTModel } from '@fastgpt/service/core/ai/model';
 
 const upload = getUploadModel({
-  maxSize: 2
+  maxSize: 5
 });
 
-export default withNextCors(async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
+async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
   let filePaths: string[] = [];
 
   try {
-    const {
+    let {
       file,
       data: { appId, duration, shareId, outLinkUid, teamId: spaceTeamId, teamToken }
-    } = await upload.doUpload<
+    } = await upload.getUploadFile<
       OutLinkChatAuthProps & {
         appId: string;
         duration: number;
       }
     >(req, res);
 
+    req.body.appId = appId;
     req.body.shareId = shareId;
     req.body.outLinkUid = outLinkUid;
     req.body.teamId = spaceTeamId;
@@ -36,37 +37,34 @@ export default withNextCors(async function handler(req: NextApiRequest, res: Nex
 
     filePaths = [file.path];
 
-    if (!global.whisperModel) {
+    if (!getDefaultSTTModel()) {
       throw new Error('whisper model not found');
     }
 
     if (!file) {
       throw new Error('file not found');
     }
+    if (duration === undefined) {
+      throw new Error('duration not found');
+    }
+    duration = duration < 1 ? 1 : duration;
 
     // auth role
-    const { teamId, tmbId } = await authChatCert({ req, authToken: true });
-    // auth app
-    const app = await MongoApp.findById(appId, 'modules').lean();
-    if (!app) {
-      throw new Error('app not found');
-    }
-    const { whisperConfig } = splitGuideModule(getGuideModule(app?.modules));
-    if (!whisperConfig?.open) {
-      throw new Error('Whisper is not open in the app');
-    }
+    const { teamId, tmbId } = await authChatCrud({
+      req,
+      authToken: true,
+      ...req.body
+    });
 
-    const ai = getAIApi();
-
-    const result = await ai.audio.transcriptions.create({
-      file: fs.createReadStream(file.path),
-      model: global.whisperModel.model
+    const result = await aiTranscriptions({
+      model: getDefaultSTTModel(),
+      fileStream: fs.createReadStream(file.path)
     });
 
     pushWhisperUsage({
       teamId,
       tmbId,
-      duration
+      duration: result?.usage?.total_tokens || duration
     });
 
     jsonRes(res, {
@@ -81,7 +79,12 @@ export default withNextCors(async function handler(req: NextApiRequest, res: Nex
   }
 
   removeFilesByPaths(filePaths);
-});
+}
+
+export default NextAPI(
+  useIPFrequencyLimit({ id: 'transcriptions', seconds: 1, limit: 1 }),
+  handler
+);
 
 export const config = {
   api: {

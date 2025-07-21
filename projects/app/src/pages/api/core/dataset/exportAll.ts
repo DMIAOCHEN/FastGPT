@@ -1,94 +1,104 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { jsonRes, responseWriteController } from '@fastgpt/service/common/response';
-import { connectToDatabase } from '@/service/mongo';
+import { responseWriteController } from '@fastgpt/service/common/response';
 import { addLog } from '@fastgpt/service/common/system/log';
-import { authDataset } from '@fastgpt/service/support/permission/auth/dataset';
+import { authDataset } from '@fastgpt/service/support/permission/dataset/auth';
 import { MongoDatasetData } from '@fastgpt/service/core/dataset/data/schema';
 import { findDatasetAndAllChildren } from '@fastgpt/service/core/dataset/controller';
-import { withNextCors } from '@fastgpt/service/common/middle/cors';
 import {
   checkExportDatasetLimit,
   updateExportDatasetLimit
 } from '@fastgpt/service/support/user/utils';
+import { NextAPI } from '@/service/middleware/entry';
+import { WritePermissionVal } from '@fastgpt/global/support/permission/constant';
+import { CommonErrEnum } from '@fastgpt/global/common/error/code/common';
+import { readFromSecondary } from '@fastgpt/service/common/mongo/utils';
+import type { DatasetDataSchemaType } from '@fastgpt/global/core/dataset/type';
+import { sanitizeCsvField } from '@fastgpt/service/common/file/csv';
 
-export default withNextCors(async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
-  try {
-    await connectToDatabase();
-    let { datasetId } = req.query as {
-      datasetId: string;
-    };
+type DataItemType = {
+  _id: string;
+  q: string;
+  a: string;
+  indexes: DatasetDataSchemaType['indexes'];
+};
 
-    if (!datasetId || !global.pgClient) {
-      throw new Error('缺少参数');
-    }
+async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
+  let { datasetId } = req.query as {
+    datasetId: string;
+  };
 
-    // 凭证校验
-    const { teamId } = await authDataset({ req, authToken: true, datasetId, per: 'w' });
-
-    await checkExportDatasetLimit({
-      teamId,
-      limitMinutes: global.feConfigs?.limit?.exportDatasetLimitMinutes
-    });
-
-    const datasets = await findDatasetAndAllChildren({
-      teamId,
-      datasetId,
-      fields: '_id'
-    });
-
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8;');
-    res.setHeader('Content-Disposition', 'attachment; filename=dataset.csv; ');
-
-    const cursor = MongoDatasetData.find<{
-      _id: string;
-      collectionId: { name: string };
-      q: string;
-      a: string;
-    }>(
-      {
-        teamId,
-        datasetId: { $in: datasets.map((d) => d._id) }
-      },
-      'q a'
-    )
-      .limit(50000)
-      .cursor();
-
-    const write = responseWriteController({
-      res,
-      readStream: cursor
-    });
-
-    write(`\uFEFFindex,content`);
-
-    cursor.on('data', (doc) => {
-      const q = doc.q.replace(/"/g, '""') || '';
-      const a = doc.a.replace(/"/g, '""') || '';
-
-      write(`\n"${q}","${a}"`);
-    });
-
-    cursor.on('end', () => {
-      cursor.close();
-      res.end();
-    });
-
-    cursor.on('error', (err) => {
-      addLog.error(`export dataset error`, err);
-      res.status(500);
-      res.end();
-    });
-
-    updateExportDatasetLimit(teamId);
-  } catch (err) {
-    res.status(500);
-    addLog.error(`export dataset error`, err);
-    jsonRes(res, {
-      code: 500,
-      error: err
-    });
+  if (!datasetId) {
+    return Promise.reject(CommonErrEnum.missingParams);
   }
-});
+
+  // 凭证校验
+  const { teamId, dataset } = await authDataset({
+    req,
+    authToken: true,
+    datasetId,
+    per: WritePermissionVal
+  });
+
+  await checkExportDatasetLimit({
+    teamId,
+    limitMinutes: global.feConfigs?.limit?.exportDatasetLimitMinutes
+  });
+
+  const datasets = await findDatasetAndAllChildren({
+    teamId,
+    datasetId,
+    fields: '_id'
+  });
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8;');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=${encodeURIComponent(dataset.name)}-backup.csv;`
+  );
+
+  const cursor = MongoDatasetData.find<DataItemType>(
+    {
+      teamId,
+      datasetId: { $in: datasets.map((d) => d._id) }
+    },
+    'q a indexes',
+    {
+      ...readFromSecondary
+    }
+  )
+    .limit(50000)
+    .cursor();
+
+  const write = responseWriteController({
+    res,
+    readStream: cursor
+  });
+
+  write(`\uFEFFq,a,indexes`);
+
+  cursor.on('data', (doc: DataItemType) => {
+    const sanitizedQ = sanitizeCsvField(doc.q || '');
+    const sanitizedA = sanitizeCsvField(doc.a || '');
+    const sanitizedIndexes = doc.indexes.map((i) => sanitizeCsvField(i.text || '')).join(',');
+
+    write(`\n${sanitizedQ},${sanitizedA},${sanitizedIndexes}`);
+  });
+
+  cursor.on('end', () => {
+    cursor.close();
+    res.end();
+  });
+
+  cursor.on('error', (err) => {
+    addLog.error(`export dataset error`, err);
+    res.status(500);
+    res.end();
+  });
+
+  updateExportDatasetLimit(teamId);
+}
+
+export default NextAPI(handler);
 
 export const config = {
   api: {

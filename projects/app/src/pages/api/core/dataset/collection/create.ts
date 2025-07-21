@@ -1,39 +1,44 @@
-/* 
-    Create one dataset collection
-*/
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { jsonRes } from '@fastgpt/service/common/response';
-import { connectToDatabase } from '@/service/mongo';
+import type { NextApiRequest } from 'next';
 import type { CreateDatasetCollectionParams } from '@fastgpt/global/core/dataset/api.d';
-import { authDataset } from '@fastgpt/service/support/permission/auth/dataset';
+import { authDataset } from '@fastgpt/service/support/permission/dataset/auth';
 import { createOneCollection } from '@fastgpt/service/core/dataset/collection/controller';
+import { NextAPI } from '@/service/middleware/entry';
+import { WritePermissionVal } from '@fastgpt/global/support/permission/constant';
+import { addAuditLog } from '@fastgpt/service/support/user/audit/util';
+import { AuditEventEnum } from '@fastgpt/global/support/user/audit/constants';
+import { getI18nDatasetType } from '@fastgpt/service/support/user/audit/util';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<any>) {
-  try {
-    await connectToDatabase();
-    const body = req.body as CreateDatasetCollectionParams;
+async function handler(req: NextApiRequest) {
+  const body = req.body as CreateDatasetCollectionParams;
 
-    const { teamId, tmbId } = await authDataset({
-      req,
-      authToken: true,
-      authApiKey: true,
-      datasetId: body.datasetId,
-      per: 'w'
-    });
+  const { teamId, tmbId, dataset } = await authDataset({
+    req,
+    authToken: true,
+    authApiKey: true,
+    datasetId: body.datasetId,
+    per: WritePermissionVal
+  });
 
-    const { _id } = await createOneCollection({
-      ...body,
+  const { _id } = await createOneCollection({
+    ...body,
+    teamId,
+    tmbId
+  });
+
+  (async () => {
+    addAuditLog({
+      tmbId,
       teamId,
-      tmbId
+      event: AuditEventEnum.CREATE_COLLECTION,
+      params: {
+        collectionName: body.name,
+        datasetName: dataset.name,
+        datasetType: getI18nDatasetType(dataset.type)
+      }
     });
+  })();
 
-    jsonRes(res, {
-      data: _id
-    });
-  } catch (err) {
-    jsonRes(res, {
-      code: 500,
-      error: err
-    });
-  }
+  return _id;
 }
+
+export default NextAPI(handler);

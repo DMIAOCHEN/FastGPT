@@ -1,13 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { jsonRes } from '@fastgpt/service/common/response';
-import { connectToDatabase } from '@/service/mongo';
+
 import { request } from 'https';
-import { FastGPTProUrl } from '@fastgpt/service/common/system/constants';
-import url from 'url';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    await connectToDatabase();
     const { path = [], ...query } = req.query as any;
 
     const queryStr = new URLSearchParams(query).toString();
@@ -25,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new Error('lafEnv is empty');
     }
 
-    const parsedUrl = url.parse(lafEnv);
+    const parsedUrl = new URL(lafEnv);
     delete req.headers?.cookie;
     delete req.headers?.host;
     delete req.headers?.origin;

@@ -1,33 +1,71 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { jsonRes } from '@fastgpt/service/common/response';
-import { connectToDatabase } from '@/service/mongo';
 import { MongoOutLink } from '@fastgpt/service/support/outLink/schema';
 import type { OutLinkEditType } from '@fastgpt/global/support/outLink/type.d';
-import { authOutLinkCrud } from '@fastgpt/service/support/permission/auth/outLink';
+import { authOutLinkCrud } from '@fastgpt/service/support/permission/publish/authLink';
+import { ManagePermissionVal } from '@fastgpt/global/support/permission/constant';
+import type { ApiRequestProps } from '@fastgpt/service/type/next';
+import { NextAPI } from '@/service/middleware/entry';
+import { CommonErrEnum } from '@fastgpt/global/common/error/code/common';
+import { addAuditLog } from '@fastgpt/service/support/user/audit/util';
+import { AuditEventEnum } from '@fastgpt/global/support/user/audit/constants';
+import { getI18nAppType } from '@fastgpt/service/support/user/audit/util';
+export type OutLinkUpdateQuery = {};
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    await connectToDatabase();
+// {
+// _id?: string; // Outlink 的 ID
+// name: string; // Outlink 的名称
+// responseDetail?: boolean; // 是否开启详细回复
+// immediateResponse?: string; // 立即回复的内容
+// defaultResponse?: string; // 默认回复的内容
+// limit?: OutLinkSchema<T>['limit']; // 限制
+// app?: T; // 平台的配置
+// }
+export type OutLinkUpdateBody = OutLinkEditType;
 
-    const { _id, name, responseDetail, limit } = req.body as OutLinkEditType & {};
+export type OutLinkUpdateResponse = {};
 
-    if (!_id) {
-      throw new Error('_id is required');
-    }
+async function handler(
+  req: ApiRequestProps<OutLinkUpdateBody, OutLinkUpdateQuery>
+): Promise<OutLinkUpdateResponse> {
+  const { _id, name, responseDetail, limit, app, showRawSource, showNodeStatus } = req.body;
 
-    await authOutLinkCrud({ req, outLinkId: _id, authToken: true, per: 'owner' });
-
-    await MongoOutLink.findByIdAndUpdate(_id, {
-      name,
-      responseDetail,
-      limit
-    });
-
-    jsonRes(res);
-  } catch (err) {
-    jsonRes(res, {
-      code: 500,
-      error: err
-    });
+  if (!_id) {
+    return Promise.reject(CommonErrEnum.missingParams);
   }
+
+  const {
+    tmbId,
+    teamId,
+    outLink,
+    app: logApp
+  } = await authOutLinkCrud({
+    req,
+    outLinkId: _id,
+    authToken: true,
+    per: ManagePermissionVal
+  });
+
+  await MongoOutLink.findByIdAndUpdate(_id, {
+    name,
+    responseDetail,
+    showRawSource,
+    showNodeStatus,
+    // showFullText,
+    limit,
+    app
+  });
+
+  (async () => {
+    addAuditLog({
+      tmbId,
+      teamId,
+      event: AuditEventEnum.UPDATE_APP_PUBLISH_CHANNEL,
+      params: {
+        appName: logApp.name,
+        channelName: outLink.name,
+        appType: getI18nAppType(logApp.type)
+      }
+    });
+  })();
+  return {};
 }
+export default NextAPI(handler);

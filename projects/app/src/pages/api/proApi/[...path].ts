@@ -1,22 +1,22 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { jsonRes } from '@fastgpt/service/common/response';
-import { connectToDatabase } from '@/service/mongo';
+
 import { request } from 'http';
 import { FastGPTProUrl } from '@fastgpt/service/common/system/constants';
-import url from 'url';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    await connectToDatabase();
     const { path = [], ...query } = req.query as any;
     const requestPath = `/api/${path?.join('/')}?${new URLSearchParams(query).toString()}`;
 
     if (!requestPath) {
       throw new Error('url is empty');
     }
+    if (!FastGPTProUrl) {
+      throw new Error(`未配置商业版链接: ${path}`);
+    }
 
-    const parsedUrl = url.parse(FastGPTProUrl);
-
+    const parsedUrl = new URL(FastGPTProUrl);
     delete req.headers?.rootkey;
 
     const requestResult = request({
@@ -37,6 +37,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       response.statusCode && res.writeHead(response.statusCode);
       response.pipe(res);
     });
+
     requestResult.on('error', (e) => {
       res.send(e);
       res.end();

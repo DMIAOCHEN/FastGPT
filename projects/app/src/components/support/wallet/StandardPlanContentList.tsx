@@ -1,53 +1,66 @@
 import { useSystemStore } from '@/web/common/system/useSystemStore';
-import { StandardSubLevelEnum, SubModeEnum } from '@fastgpt/global/support/wallet/sub/constants';
+import type { StandardSubLevelEnum } from '@fastgpt/global/support/wallet/sub/constants';
+import { SubModeEnum } from '@fastgpt/global/support/wallet/sub/constants';
 import React, { useMemo } from 'react';
 import { standardSubLevelMap } from '@fastgpt/global/support/wallet/sub/constants';
 import { Box, Flex, Grid } from '@chakra-ui/react';
 import MyIcon from '@fastgpt/web/components/common/Icon';
 import { useTranslation } from 'next-i18next';
-import MyTooltip from '@fastgpt/web/components/common/MyTooltip';
-import { QuestionOutlineIcon } from '@chakra-ui/icons';
-import { useRouter } from 'next/router';
-import { AI_POINT_USAGE_CARD_ROUTE } from '@/web/support/wallet/sub/constants';
+import QuestionTip from '@fastgpt/web/components/common/MyTooltip/QuestionTip';
+import dynamic from 'next/dynamic';
+import type { TeamSubSchema } from '@fastgpt/global/support/wallet/sub/type';
+
+const ModelPriceModal = dynamic(() =>
+  import('@/components/core/ai/ModelTable').then((mod) => mod.ModelPriceModal)
+);
 
 const StandardPlanContentList = ({
   level,
-  mode
+  mode,
+  standplan
 }: {
   level: `${StandardSubLevelEnum}`;
   mode: `${SubModeEnum}`;
+  standplan?: TeamSubSchema;
 }) => {
   const { t } = useTranslation();
   const { subPlans } = useSystemStore();
-  const router = useRouter();
 
   const planContent = useMemo(() => {
     const plan = subPlans?.standard?.[level];
+
     if (!plan) return;
     return {
       price: plan.price * (mode === SubModeEnum.month ? 1 : 10),
       level: level as `${StandardSubLevelEnum}`,
       ...standardSubLevelMap[level as `${StandardSubLevelEnum}`],
-      maxTeamMember: plan.maxTeamMember,
-      maxAppAmount: plan.maxAppAmount,
-      maxDatasetAmount: plan.maxDatasetAmount,
+      maxTeamMember: standplan?.maxTeamMember || plan.maxTeamMember,
+      maxAppAmount: standplan?.maxApp || plan.maxAppAmount,
+      maxDatasetAmount: standplan?.maxDataset || plan.maxDatasetAmount,
       chatHistoryStoreDuration: plan.chatHistoryStoreDuration,
       maxDatasetSize: plan.maxDatasetSize,
       permissionCustomApiKey: plan.permissionCustomApiKey,
       permissionCustomCopyright: plan.permissionCustomCopyright,
       trainingWeight: plan.trainingWeight,
-      permissionReRank: plan.permissionReRank,
       totalPoints: plan.totalPoints * (mode === SubModeEnum.month ? 1 : 12),
-      permissionWebsiteSync: plan.permissionWebsiteSync
+      permissionWebsiteSync: plan.permissionWebsiteSync,
+      permissionTeamOperationLog: plan.permissionTeamOperationLog
     };
-  }, [subPlans?.standard, level, mode]);
+  }, [
+    subPlans?.standard,
+    level,
+    mode,
+    standplan?.maxTeamMember,
+    standplan?.maxApp,
+    standplan?.maxDataset
+  ]);
 
   return planContent ? (
-    <Grid gap={4}>
+    <Grid gap={4} fontSize={'sm'} fontWeight={500}>
       <Flex alignItems={'center'}>
         <MyIcon name={'price/right'} w={'16px'} mr={3} />
         <Box color={'myGray.600'}>
-          {t('support.wallet.subscription.function.Max members', {
+          {t('common:support.wallet.subscription.function.Max members', {
             amount: planContent.maxTeamMember
           })}
         </Box>
@@ -55,7 +68,7 @@ const StandardPlanContentList = ({
       <Flex alignItems={'center'}>
         <MyIcon name={'price/right'} w={'16px'} mr={3} />
         <Box color={'myGray.600'}>
-          {t('support.wallet.subscription.function.Max app', {
+          {t('common:support.wallet.subscription.function.Max app', {
             amount: planContent.maxAppAmount
           })}
         </Box>
@@ -63,7 +76,7 @@ const StandardPlanContentList = ({
       <Flex alignItems={'center'}>
         <MyIcon name={'price/right'} w={'16px'} mr={3} />
         <Box color={'myGray.600'}>
-          {t('support.wallet.subscription.function.Max dataset', {
+          {t('common:support.wallet.subscription.function.Max dataset', {
             amount: planContent.maxDatasetAmount
           })}
         </Box>
@@ -71,15 +84,15 @@ const StandardPlanContentList = ({
       <Flex alignItems={'center'}>
         <MyIcon name={'price/right'} w={'16px'} mr={3} />
         <Box color={'myGray.600'}>
-          {t('support.wallet.subscription.function.History store', {
+          {t('common:support.wallet.subscription.function.History store', {
             amount: planContent.chatHistoryStoreDuration
           })}
         </Box>
       </Flex>
       <Flex alignItems={'center'}>
         <MyIcon name={'price/right'} w={'16px'} mr={3} />
-        <Box fontWeight={'bold'}>
-          {t('support.wallet.subscription.function.Max dataset size', {
+        <Box fontWeight={'bold'} color={'myGray.600'}>
+          {t('common:support.wallet.subscription.function.Max dataset size', {
             amount: planContent.maxDatasetSize
           })}
         </Box>
@@ -87,39 +100,42 @@ const StandardPlanContentList = ({
       <Flex alignItems={'center'}>
         <MyIcon name={'price/right'} w={'16px'} mr={3} />
         <Flex alignItems={'center'}>
-          <Box fontWeight={'bold'}>
-            {t('support.wallet.subscription.function.Points', {
+          <Box fontWeight={'bold'} color={'myGray.600'}>
+            {t('common:support.wallet.subscription.function.Points', {
               amount: planContent.totalPoints
             })}
           </Box>
-          <MyTooltip label={t('support.wallet.subscription.AI points click to read tip')}>
-            <QuestionOutlineIcon
-              ml={'2px'}
-              onClick={() => {
-                router.push(AI_POINT_USAGE_CARD_ROUTE);
-              }}
-            />
-          </MyTooltip>
+          <ModelPriceModal>
+            {({ onOpen }) => (
+              <QuestionTip
+                ml={1}
+                label={t('common:support.wallet.subscription.AI points click to read tip')}
+                onClick={onOpen}
+              />
+            )}
+          </ModelPriceModal>
         </Flex>
       </Flex>
       <Flex alignItems={'center'}>
         <MyIcon name={'price/right'} w={'16px'} mr={3} />
         <Box color={'myGray.600'}>
-          {t('support.wallet.subscription.Training weight', {
+          {t('common:support.wallet.subscription.Training weight', {
             weight: planContent.trainingWeight
           })}
         </Box>
       </Flex>
-      {!!planContent.permissionReRank && (
-        <Flex alignItems={'center'}>
-          <MyIcon name={'price/right'} w={'16px'} mr={3} />
-          <Box color={'myGray.600'}>检索结果重排</Box>
-        </Flex>
-      )}
       {!!planContent.permissionWebsiteSync && (
         <Flex alignItems={'center'}>
           <MyIcon name={'price/right'} w={'16px'} mr={3} />
-          <Box color={'myGray.600'}>Web站点同步</Box>
+          <Box color={'myGray.600'}>{t('common:support.wallet.subscription.web_site_sync')}</Box>
+        </Flex>
+      )}
+      {!!planContent.permissionTeamOperationLog && (
+        <Flex alignItems={'center'}>
+          <MyIcon name={'price/right'} w={'16px'} mr={3} />
+          <Box color={'myGray.600'}>
+            {t('common:support.wallet.subscription.team_operation_log')}
+          </Box>
         </Flex>
       )}
     </Grid>
